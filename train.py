@@ -28,7 +28,7 @@ parser.add_argument('data', metavar='DIR', help='path to dataset')
 parser.add_argument('--folder-type', type=str, choices=['sequence', 'pair'], default='sequence', help='the dataset dype to train')
 parser.add_argument('--sequence-length', type=int, metavar='N', help='sequence length for training', default=3)
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N', help='number of data loading workers')
-parser.add_argument('--epochs', default=200, type=int, metavar='N', help='number of total epochs to run')
+parser.add_argument('--epochs', default=150, type=int, metavar='N', help='number of total epochs to run')
 parser.add_argument('--epoch-size', default=0, type=int, metavar='N', help='manual epoch size (will match dataset size if not set)')
 parser.add_argument('-b', '--batch-size', default=4, type=int, metavar='N', help='mini-batch size')
 parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float, metavar='LR', help='initial learning rate')
@@ -59,7 +59,7 @@ parser.add_argument('--padding-mode', type=str, choices=['zeros', 'border'], def
                          ' border will only null gradients of the coordinate outside (x or y)')
 parser.add_argument('--with-gt', action='store_true', help='use ground truth for validation. \
                     You need to store it in npy 2D arrays see data/kitti_raw_loader.py for an example')
-
+parser.add_argument('--mod', type=str, choices=['box_blur', 'gauss_blur', 'bilateral_blur', 'sharpening', 'hist_eq'], default=None, help='the input data modification')
 
 best_error = -1
 n_iter = 0
@@ -109,7 +109,8 @@ def main():
             seed=args.seed,
             train=True,
             sequence_length=args.sequence_length,
-            dataset=args.dataset
+            dataset=args.dataset,
+            mod=args.mod
         )
     else:
         train_set = PairFolder(
@@ -246,24 +247,26 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
     end = time.time()
     logger.train_bar.update(0)
 
-    for i, (tgt_img, ref_imgs, intrinsics, intrinsics_inv) in enumerate(train_loader):
+    for i, (tgt_img, ref_imgs, tgt_img_mod, ref_imgs_mod, intrinsics, intrinsics_inv) in enumerate(train_loader):
         log_losses = i > 0 and n_iter % args.print_freq == 0
 
         # measure data loading time
         data_time.update(time.time() - end)
         tgt_img = tgt_img.to(device)
         ref_imgs = [img.to(device) for img in ref_imgs]
+        tgt_img_mod = tgt_img_mod.to(device)
+        ref_imgs_mod = [img.to(device) for img in ref_imgs_mod]
         intrinsics = intrinsics.to(device)
 
         # compute output
         tgt_depth, ref_depths = compute_depth(disp_net, tgt_img, ref_imgs)
         poses, poses_inv = compute_pose_with_inv(pose_net, tgt_img, ref_imgs)
 
-        loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img, ref_imgs, intrinsics, tgt_depth, ref_depths,
+        loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img_mod, ref_imgs_mod, intrinsics, tgt_depth, ref_depths,
                                                          poses, poses_inv, args.num_scales, args.with_ssim,
                                                          args.with_mask, args.with_auto_mask, args.padding_mode)
 
-        loss_2 = compute_smooth_loss(tgt_depth, tgt_img, ref_depths, ref_imgs)
+        loss_2 = compute_smooth_loss(tgt_depth, tgt_img_mod, ref_depths, ref_imgs_mod)
 
         loss = w1*loss_1 + w2*loss_2 + w3*loss_3
 
