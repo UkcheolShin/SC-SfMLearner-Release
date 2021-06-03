@@ -118,12 +118,24 @@ class DispResNet(nn.Module):
         if self.training:
             return outputs
         else:
-            return outputs[0]
+#            return outputs[0]
+            return outputs
 
 
 if __name__ == "__main__":
 
     torch.backends.cudnn.benchmark = True
+    import pdb
+    pdb.set_trace()
+    from swin_transformer import SwinTransformer
+    
+    encoder = ResnetEncoder(num_layers = 18, pretrained = True, num_input_images=1)
+    encoder_res = encoder.cuda()
+    encoder_swin = SwinTransformer(img_size=225).cuda()
+
+    B = 12
+    tgt_img = torch.randn(B, 3, 225, 225).cuda()
+    abc = encoder_swin(tgt_img)
 
     model = DispResNet().cuda()
     model.train()

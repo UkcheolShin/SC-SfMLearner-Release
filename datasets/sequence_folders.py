@@ -96,7 +96,7 @@ class SequenceFolder(data.Dataset):
         random.shuffle(sequence_set)
         self.samples = sequence_set
 
-    def box_blur(self, img, kernel_size = 3) : 
+    def box_blur(self, img, kernel_size = 11) : 
         # box blur
 #       kernel_size = 3 # 3,5,7,...
         outimg = cv2.blur(img, ksize=(kernel_size, kernel_size))
@@ -127,14 +127,19 @@ class SequenceFolder(data.Dataset):
         outimg = cv2.bilateralFilter(img, d=d_size, sigmaColor=75, sigmaSpace=75)
         return outimg
 
+    def rgb2gray(self, img) : 
+        # rgb2gray
+        outimg = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        return outimg
+
     def sharpening(self, img) : 
         # sharpening
-        sharpening_1 = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-        # sharpening_1 = np.array([[-1, -1, -1, -1, -1], \
-        #                         [-1, 2, 2, 2, -1], \
-        #                         [-1, 2, 9, 2, -1],\
-        #                         [-1, 2, 2, 2, -1],\
-        #                         [-1, -1, -1, -1, -1]]) / 9.0
+        #sharpening_1 = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        sharpening_1 = np.array([[-1, -1, -1, -1, -1], \
+                                [-1, 2, 2, 2, -1], \
+                                [-1, 2, 9, 2, -1],\
+                                [-1, 2, 2, 2, -1],\
+                                [-1, -1, -1, -1, -1]]) / 9.0
         outimg = cv2.filter2D(img.astype(np.uint8), -1, sharpening_1)
         return outimg.astype(np.float32)
 

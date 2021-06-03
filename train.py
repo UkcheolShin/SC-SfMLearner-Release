@@ -60,6 +60,8 @@ parser.add_argument('--padding-mode', type=str, choices=['zeros', 'border'], def
 parser.add_argument('--with-gt', action='store_true', help='use ground truth for validation. \
                     You need to store it in npy 2D arrays see data/kitti_raw_loader.py for an example')
 parser.add_argument('--mod', type=str, choices=['box_blur', 'gauss_blur', 'bilateral_blur', 'sharpening', 'hist_eq'], default=None, help='the input data modification')
+parser.add_argument('--with-sr', action='store_true', help='use super resolution network. \
+                    You need to store it in npy 2D arrays see data/kitti_raw_loader.py for an example')
 
 best_error = -1
 n_iter = 0
@@ -155,6 +157,12 @@ def main():
     disp_net = models.DispResNet(args.resnet_layers, args.with_pretrain).to(device)
     pose_net = models.PoseResNet(18, args.with_pretrain).to(device)
 
+    if args.with_sr :
+        sr_net_x2 = models.EDSR(scale=2, n_colors=1)
+        sr_net_x4 = models.EDSR(scale=4, n_colors=1)
+        sr_net_x8 = models.EDSR(scale=8, n_colors=1)
+        args.sr_nets = [sr_net_x2, sr_net_x4, sr_net_x8]
+
     # load parameters
     if args.pretrained_disp:
         print("=> using pre-trained weights for DispResNet")
@@ -169,11 +177,26 @@ def main():
     disp_net = torch.nn.DataParallel(disp_net)
     pose_net = torch.nn.DataParallel(pose_net)
 
-    print('=> setting adam solver')
-    optim_params = [
-        {'params': disp_net.parameters(), 'lr': args.lr},
-        {'params': pose_net.parameters(), 'lr': args.lr}
-    ]
+    if args.with_sr :
+        sr_net_x2 = torch.nn.DataParallel(sr_net_x2)
+        sr_net_x4 = torch.nn.DataParallel(sr_net_x4)
+        sr_net_x8 = torch.nn.DataParallel(sr_net_x8)
+        args.sr_nets = [sr_net_x2, sr_net_x4, sr_net_x8]
+        print('=> setting adam solver')
+        optim_params = [
+            {'params': disp_net.parameters(), 'lr': args.lr},
+            {'params': pose_net.parameters(), 'lr': args.lr},
+            {'params': sr_net_x2.parameters(), 'lr': args.lr},
+            {'params': sr_net_x4.parameters(), 'lr': args.lr},
+            {'params': sr_net_x8.parameters(), 'lr': args.lr},
+        ]
+    else:
+        print('=> setting adam solver')
+        optim_params = [
+            {'params': disp_net.parameters(), 'lr': args.lr},
+            {'params': pose_net.parameters(), 'lr': args.lr}
+        ]
+
     optimizer = torch.optim.Adam(optim_params,
                                  betas=(args.momentum, args.beta),
                                  weight_decay=args.weight_decay)
@@ -194,8 +217,8 @@ def main():
 
         # train for one epoch
         logger.reset_train_bar()
-        train_loss = train(args, train_loader, disp_net, pose_net, optimizer, args.epoch_size, logger, training_writer)
-        logger.train_writer.write(' * Avg Loss : {:.3f}'.format(train_loss))
+        # train_loss = train(args, train_loader, disp_net, pose_net, optimizer, args.epoch_size, logger, training_writer)
+        # logger.train_writer.write(' * Avg Loss : {:.3f}'.format(train_loss))
 
         # evaluate on validation set
         logger.reset_valid_bar()
@@ -243,6 +266,8 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
     # switch to train mode
     disp_net.train()
     pose_net.train()
+    if args.with_sr : 
+        for sr_net in args.sr_nets : sr_net.train()
 
     end = time.time()
     logger.train_bar.update(0)
@@ -262,6 +287,16 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
         tgt_depth, ref_depths = compute_depth(disp_net, tgt_img, ref_imgs)
         poses, poses_inv = compute_pose_with_inv(pose_net, tgt_img, ref_imgs)
 
+        if args.with_sr : 
+            tgt_depth_sr = compute_sr_depth(args.sr_nets, tgt_depth[1:])
+            ref_depths_lr = []
+            for ref_depth in ref_depths :             
+                ref_depths_lr.append(compute_sr_depth(args.sr_nets, ref_depth[1:]))
+
+            loss_sr = compute_sr_loss(tgt_depth_sr, tgt_depth[0])
+            for idx, ref_depth_lr in zip(range(len(ref_depths_lr)), ref_depths_lr) :      
+                loss_sr += compute_sr_loss(ref_depth_lr, ref_depths[idx][0])
+
         loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img_mod, ref_imgs_mod, intrinsics, tgt_depth, ref_depths,
                                                          poses, poses_inv, args.num_scales, args.with_ssim,
                                                          args.with_mask, args.with_auto_mask, args.padding_mode)
@@ -270,11 +305,27 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
 
         loss = w1*loss_1 + w2*loss_2 + w3*loss_3
 
+        if args.with_sr : 
+            loss += 0.1*loss_sr 
+
         if log_losses:
             train_writer.add_scalar('photometric_error', loss_1.item(), n_iter)
             train_writer.add_scalar('disparity_smoothness_loss', loss_2.item(), n_iter)
             train_writer.add_scalar('geometry_consistency_loss', loss_3.item(), n_iter)
             train_writer.add_scalar('total_loss', loss.item(), n_iter)
+            if args.with_sr : 
+                train_writer.add_scalar('sr_loss', loss_sr.item(), n_iter)
+    
+        if i < len(train_writer):
+            if epoch == 0:
+                train_writer[i].add_image('Train Input', tensor2array(tgt_img_mod[0]), 0)
+
+            train_writer[i].add_image('Train Dispnet Output Normalized',
+                                        tensor2array(1/tgt_depth[0][0], max_value=None, colormap='magma'),
+                                        epoch)
+            train_writer[i].add_image('Train Depth Output',
+                                        tensor2array(tgt_depth[0][0], max_value=10),
+                                        epoch)
 
         # record loss and EPE
         losses.update(loss.item(), args.batch_size)
@@ -375,6 +426,8 @@ def validate_with_gt(args, val_loader, disp_net, epoch, logger, output_writers=[
 
     # switch to evaluate mode
     disp_net.eval()
+    if args.with_sr : 
+        for sr_net in args.sr_nets : sr_net.eval()
 
     end = time.time()
     logger.valid_bar.update(0)
@@ -388,7 +441,11 @@ def validate_with_gt(args, val_loader, disp_net, epoch, logger, output_writers=[
 
         # compute output
         output_disp = disp_net(tgt_img)
-        output_depth = 1/output_disp[:, 0]
+        output_depth = [1/disp for disp in output_disp]
+
+        if args.with_sr : 
+            output_depths_sr = compute_sr_depth(args.sr_nets, output_depth[1:])
+            output_disps_sr = [1/depth for depth in output_depths_sr]
 
         if log_outputs and i < len(output_writers):
             if epoch == 0:
@@ -403,13 +460,24 @@ def validate_with_gt(args, val_loader, disp_net, epoch, logger, output_writers=[
                                             tensor2array(disp_to_show, max_value=None, colormap='magma'),
                                             epoch)
 
-            output_writers[i].add_image('val Dispnet Output Normalized',
-                                        tensor2array(output_disp[0], max_value=None, colormap='magma'),
-                                        epoch)
-            output_writers[i].add_image('val Depth Output',
-                                        tensor2array(output_depth[0], max_value=10),
-                                        epoch)
+            for j in len(output_disp) : 
+                output_writers[i].add_image('val Dispnet Output Normalized_scale' + str(j),
+                                            tensor2array(output_disp[j][0], max_value=None, colormap='magma'),
+                                            epoch)
+                output_writers[i].add_image('val Depth Output_scale' + str(j),
+                                            tensor2array(output_depth[j][0], max_value=10),
+                                            epoch)
+            if args.with_sr :
+                for j in len(output_depths_sr) : 
+                    output_writers[i].add_image('val Dispnet Output Normalized SR_scale' + str(j),
+                                                tensor2array(output_disps_sr[j][0], max_value=None, colormap='magma'),
+                                                epoch)
+                    output_writers[i].add_image('val Depth Output SR_scale' + str(j),
+                                                tensor2array(output_depths_sr[j][0], max_value=10),
+                                                epoch)
 
+
+        output_depth = output_depth[0][:,0]
         if depth.nelement() != output_depth.nelement():
             b, h, w = depth.size()
             output_depth = torch.nn.functional.interpolate(output_depth.unsqueeze(1), [h, w]).squeeze(1)
@@ -436,6 +504,17 @@ def compute_depth(disp_net, tgt_img, ref_imgs):
 
     return tgt_depth, ref_depths
 
+def compute_sr_depth(sr_nets, lr_depths) :
+    sr_depths = []
+    for idx, lr_depth in zip(range(len(lr_depths)), lr_depths) :
+        sr_depths.append(sr_nets[idx](lr_depth))
+    return sr_depths
+
+def compute_sr_loss(preds, gt) : 
+    loss = 0
+    for pred in preds :
+        loss += (pred-gt).abs().mean()
+    return loss
 
 def compute_pose_with_inv(pose_net, tgt_img, ref_imgs):
     poses = []
