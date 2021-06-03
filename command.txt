@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python train.py /SSD1/Dataset_processed/KITTI_128/ --resnet-layers 18 --num-scales 1 -b4 -s0.1 -c0.5 --epoch-size 1000 --sequence-length 3 --with-ssim 1 --with-mask 1 --with-auto-mask 1 --with-pretrain 1 --log-output --with-gt --name resnet18_baseline

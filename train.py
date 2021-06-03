@@ -217,8 +217,8 @@ def main():
 
         # train for one epoch
         logger.reset_train_bar()
-        # train_loss = train(args, train_loader, disp_net, pose_net, optimizer, args.epoch_size, logger, training_writer)
-        # logger.train_writer.write(' * Avg Loss : {:.3f}'.format(train_loss))
+        train_loss = train(args, train_loader, disp_net, pose_net, optimizer, args.epoch_size, logger, training_writer)
+        logger.train_writer.write(' * Avg Loss : {:.3f}'.format(train_loss))
 
         # evaluate on validation set
         logger.reset_valid_bar()
@@ -315,17 +315,9 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
             train_writer.add_scalar('total_loss', loss.item(), n_iter)
             if args.with_sr : 
                 train_writer.add_scalar('sr_loss', loss_sr.item(), n_iter)
-    
-        if i < len(train_writer):
-            if epoch == 0:
-                train_writer[i].add_image('Train Input', tensor2array(tgt_img_mod[0]), 0)
 
-            train_writer[i].add_image('Train Dispnet Output Normalized',
-                                        tensor2array(1/tgt_depth[0][0], max_value=None, colormap='magma'),
-                                        epoch)
-            train_writer[i].add_image('Train Depth Output',
-                                        tensor2array(tgt_depth[0][0], max_value=10),
-                                        epoch)
+        if n_iter == 0:
+            train_writer.add_image('Train Input', tensor2array(tgt_img_mod[0]), 0)
 
         # record loss and EPE
         losses.update(loss.item(), args.batch_size)
@@ -459,8 +451,7 @@ def validate_with_gt(args, val_loader, disp_net, epoch, logger, output_writers=[
                 output_writers[i].add_image('val target Disparity Normalized',
                                             tensor2array(disp_to_show, max_value=None, colormap='magma'),
                                             epoch)
-
-            for j in len(output_disp) : 
+            for j in range(len(output_disp)) : 
                 output_writers[i].add_image('val Dispnet Output Normalized_scale' + str(j),
                                             tensor2array(output_disp[j][0], max_value=None, colormap='magma'),
                                             epoch)
@@ -468,7 +459,7 @@ def validate_with_gt(args, val_loader, disp_net, epoch, logger, output_writers=[
                                             tensor2array(output_depth[j][0], max_value=10),
                                             epoch)
             if args.with_sr :
-                for j in len(output_depths_sr) : 
+                for j in range(len(output_depths_sr)) : 
                     output_writers[i].add_image('val Dispnet Output Normalized SR_scale' + str(j),
                                                 tensor2array(output_disps_sr[j][0], max_value=None, colormap='magma'),
                                                 epoch)
