@@ -297,9 +297,16 @@ def train(args, train_loader, disp_net, pose_net, optimizer, epoch_size, logger,
             for idx, ref_depth_lr in zip(range(len(ref_depths_lr)), ref_depths_lr) :      
                 loss_sr += compute_sr_loss(ref_depth_lr, ref_depths[idx][0])
 
-        loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img_mod, ref_imgs_mod, intrinsics, tgt_depth, ref_depths,
-                                                         poses, poses_inv, args.num_scales, args.with_ssim,
-                                                         args.with_mask, args.with_auto_mask, args.padding_mode)
+        if args.with_sr : 
+            tgt_depth_new = [tgt_depth[0]] + tgt_depth_sr
+            ref_depths_new = [[ref_depths[0][0]]+ref_depths_lr[0]]
+            ref_depths_new.append([ref_depths[1][0]] + ref_depths_lr[1])
+            loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img_mod, ref_imgs_mod, intrinsics, tgt_depth_new, ref_depths_new, poses, poses_inv, args.num_scales, args.with_ssim, args.with_mask, args.with_auto_mask, args.padding_mode)
+        else:
+            loss_1, loss_3 = compute_photo_and_geometry_loss(tgt_img_mod, ref_imgs_mod, intrinsics, tgt_depth, ref_depths,
+                                                             poses, poses_inv, args.num_scales, args.with_ssim,
+                                                             args.with_mask, args.with_auto_mask, args.padding_mode)
+
 
         loss_2 = compute_smooth_loss(tgt_depth, tgt_img_mod, ref_depths, ref_imgs_mod)
 
