@@ -45,6 +45,8 @@ class SequenceFolder(data.Dataset):
             self.img_mod = self.sharpening
         elif mod == 'hist_eq':
             self.img_mod = self.hist_eq
+        elif mod == 'rgb2gray':
+            self.img_mod = self.rgb2gray
         elif mod == None :
             self.img_mod = self.no_mod
 
@@ -129,7 +131,10 @@ class SequenceFolder(data.Dataset):
 
     def rgb2gray(self, img) : 
         # rgb2gray
-        outimg = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+#        outimg = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+#        return np.expand_dims(outimg,2)
+#        outimg = np.expand_dims(img.mean(2), 2)
+        outimg = (img - 100.0).clip(0.,255.)
         return outimg
 
     def sharpening(self, img) : 

@@ -59,7 +59,7 @@ parser.add_argument('--padding-mode', type=str, choices=['zeros', 'border'], def
                          ' border will only null gradients of the coordinate outside (x or y)')
 parser.add_argument('--with-gt', action='store_true', help='use ground truth for validation. \
                     You need to store it in npy 2D arrays see data/kitti_raw_loader.py for an example')
-parser.add_argument('--mod', type=str, choices=['box_blur', 'gauss_blur', 'bilateral_blur', 'sharpening', 'hist_eq'], default=None, help='the input data modification')
+parser.add_argument('--mod', type=str, choices=['box_blur', 'gauss_blur', 'bilateral_blur', 'sharpening', 'hist_eq', 'rgb2gray'], default=None, help='the input data modification')
 parser.add_argument('--with-sr', action='store_true', help='use super resolution network. \
                     You need to store it in npy 2D arrays see data/kitti_raw_loader.py for an example')
 
