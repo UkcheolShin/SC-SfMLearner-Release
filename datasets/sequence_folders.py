@@ -6,6 +6,7 @@ import random
 import os
 import cv2
 import scipy.ndimage as ndi
+from skimage.filters import unsharp_mask
 
 def load_as_float(path):
     return imread(path).astype(np.float32)
@@ -32,6 +33,7 @@ class SequenceFolder(data.Dataset):
         self.dataset = dataset
         self.k = skip_frames
         self.crawl_folders(sequence_length)
+        self.mod = mod
 
         if mod == 'box_blur':
             self.img_mod = self.box_blur
@@ -45,17 +47,19 @@ class SequenceFolder(data.Dataset):
             self.img_mod = self.sharpening
         elif mod == 'hist_eq':
             self.img_mod = self.hist_eq
+        elif mod == 'unsharpmask':
+            self.img_mod = self.unsharpmask            
         elif mod == 'rgb2gray':
-            self.img_mod = self.rgb2gray
+            self.img_mod = self.no_mod
         elif mod == None :
             self.img_mod = self.no_mod
 
         # import pdb
         # pdb.set_trace()
-#         sample = self.samples[1]
-#         tgt_img = load_as_float(sample['tgt'])
+        # sample = self.samples[1]
+        # tgt_img = load_as_float(sample['tgt'])
 
-#         import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
 # #        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 #         plt.imshow(tgt_img.astype(np.uint8))
 #         plt.show()
@@ -156,6 +160,12 @@ class SequenceFolder(data.Dataset):
         outimg = cv2.cvtColor(img_yuv,cv2.COLOR_YUV2RGB) # Y : intensity, u,v : color
         return outimg.astype(np.float32)
 
+    def unsharpmask(self, img, radius=2, amount=4) : 
+        outimg = np.copy(img).astype(np.float32)
+        for i in range(3):
+            outimg[...,i] = unsharp_mask(img[...,i].astype(np.uint8), radius=radius, amount=amount)
+        return (outimg*255).astype(np.float32)
+
     def no_mod(self, img) : 
         return img
 
@@ -171,8 +181,12 @@ class SequenceFolder(data.Dataset):
             imgs, intrinsics = self.transform([tgt_img] + ref_imgs + [tgt_img_mod] + ref_imgs_mod, np.copy(sample['intrinsics']))
             tgt_img = imgs[0]
             ref_imgs = imgs[1:3]
-            tgt_img_mod = imgs[3]
-            ref_imgs_mod = imgs[4:6]
+            if self.mod != 'rgb2gray' : 
+                tgt_img_mod = imgs[3]
+                ref_imgs_mod = imgs[4:6]
+            else: 
+                tgt_img_mod = np.expand_dims(imgs[3].mean(0), 0)*0.25
+                ref_imgs_mod = [np.expand_dims(img.mean(0), 0)*0.25 for img in imgs[4:6]]            
         else:
             intrinsics = np.copy(sample['intrinsics'])
         return tgt_img, ref_imgs, tgt_img_mod, ref_imgs_mod, intrinsics, np.linalg.inv(intrinsics)
